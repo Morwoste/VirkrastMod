@@ -1,0 +1,12 @@
+{
+  "type": "virkrast:virkrast_type",
+  "generator": {
+    "type": "virkrast:virkrast_generator",
+    "biome_source": {
+      "type": "virkrast:virkrast_biomes",
+      "plains_biome": "minecraft:plains",
+      "forest_biome": "minecraft:forest",
+      "ocean_biome": "minecraft:ocean"
+    }
+  }
+}

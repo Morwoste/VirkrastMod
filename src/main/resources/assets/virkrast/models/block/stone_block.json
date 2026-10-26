@@ -1,0 +1,6 @@
+{
+  "parent": "virkrast:block/stone_block",
+  "textures": {
+    "all": "virkrast:block/stone_block"
+  }
+}
