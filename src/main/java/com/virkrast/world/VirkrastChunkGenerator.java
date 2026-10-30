@@ -11,6 +11,7 @@ import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.ChunkGeneratorStructureState;
@@ -25,6 +26,10 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
+/**
+ * Главный класс генератора чанков для мода Vekrast.
+ * Отвечает за создание рельефа, заполнение блоков земли, камня и воды.
+ */
 public class VirkrastChunkGenerator extends ChunkGenerator {
 
     public static final Codec<VirkrastChunkGenerator> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -32,6 +37,7 @@ public class VirkrastChunkGenerator extends ChunkGenerator {
             .apply(instance, VirkrastChunkGenerator::new));
 
     public static final int LAND_SURFACE_Y = 64;
+
     private final com.virkrast.world.noise.NoiseGenerator noise = new com.virkrast.world.noise.NoiseGenerator(1337L);
 
     public VirkrastChunkGenerator(BiomeSource biomeSource) {
@@ -49,17 +55,13 @@ public class VirkrastChunkGenerator extends ChunkGenerator {
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         ChunkPos chunkPos = chunk.getPos();
 
-        double voronoiScale = 300.0;
-        double perlinScale = 140.0;
-        double mountainScale = 220.0;
-        int blendRadius = 12;
+        int blendRadius = 20;
 
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
                 int worldX = chunkPos.getMinBlockX() + x;
                 int worldZ = chunkPos.getMinBlockZ() + z;
 
-                // Бедрок на самое дно
                 chunk.setBlockState(pos.set(x, -64, z), Blocks.BEDROCK.defaultBlockState(), false);
 
                 double weightEmpire = 0.0;
@@ -67,7 +69,7 @@ public class VirkrastChunkGenerator extends ChunkGenerator {
                 double weightOcean = 0.0;
                 double totalWeights = 0.0;
 
-                // Сканируем область вокруг блока по картинке для плавного сглаживания биомов
+                // 1. Сбор весов биомов вокруг блока
                 for (int bx = -blendRadius; bx <= blendRadius; bx++) {
                     for (int bz = -blendRadius; bz <= blendRadius; bz++) {
                         int sampleX = worldX + bx;
@@ -78,14 +80,15 @@ public class VirkrastChunkGenerator extends ChunkGenerator {
                         int pixelX = chunkCoordX + 256;
                         int pixelY = chunkCoordZ + 256;
 
-                        String currentBiome = "plains"; // По умолчанию
+                        String currentBiome = "plains";
 
                         if (VirkrastBiomeSource.INSTANCE != null) {
                             BufferedImage img = VirkrastBiomeSource.INSTANCE.getMapImage();
                             if (img != null && pixelX >= 0 && pixelX < 512 && pixelY >= 0 && pixelY < 512) {
                                 int rgb = img.getRGB(pixelX, pixelY) & 0xFFFFFF;
-
-                                if (rgb == 0x06DD06 || rgb == 0x0B770B) {
+                                if (rgb == 0x06DD06) {
+                                    currentBiome = "plains";
+                                } else if (rgb == 0x0B770B) {
                                     currentBiome = "empire_biome";
                                 } else {
                                     currentBiome = "ocean_biome";
@@ -98,101 +101,135 @@ public class VirkrastChunkGenerator extends ChunkGenerator {
                         double distanceSq = (bx * bx + bz * bz);
                         double distanceWeight = 1.0 / (1.0 + distanceSq * 0.1);
 
-                        if ("empire_biome".equals(currentBiome)) {
-                            weightEmpire += distanceWeight;
-                        } else if ("ocean_biome".equals(currentBiome)) {
-                            weightOcean += distanceWeight;
-                        } else {
-                            weightPlains += distanceWeight;
+                        switch (currentBiome) {
+                            case "empire_biome" -> weightEmpire += distanceWeight;
+                            case "ocean_biome" -> weightOcean += distanceWeight;
+                            default -> weightPlains += distanceWeight;
                         }
+
                         totalWeights += distanceWeight;
                     }
                 }
 
-                // Нормализация весов биомов
                 weightEmpire /= totalWeights;
                 weightPlains /= totalWeights;
                 weightOcean /= totalWeights;
 
-                // Генерация шумов
-                double plainHills = (noise.getAdvancedPerlin(worldX, worldZ, 4, perlinScale, 0.5, 2.0) + 1.0) / 2.0;
-                double sharpMountains = noise.getRidgedMountainNoise(worldX, worldZ, 5, mountainScale);
-                double localVoronoi = noise.getVoronoiDistance(worldX, worldZ, voronoiScale);
+                // 2. Генерируем текстурный шум для блоков
+                double blockNoise = (noise.getAdvancedPerlin(worldX, worldZ, 2, 4.0, 0.6, 2.0) + 1.0) / 2.0;
 
-                // Расчет высот для биома Empire
-                double empireMountainWeight = (localVoronoi < 0.5) ? (1.0 - (localVoronoi / 0.5)) : 0.0;
-                double empireHillsWeight = (localVoronoi < 0.5) ? (1.0 - empireMountainWeight)
-                        : (1.0 - ((localVoronoi - 0.5) / 0.5));
-                double empireHeightResult = (sharpMountains * empireMountainWeight * 95.0)
-                        + (plainHills * empireHillsWeight * 30.0);
+                VirkrastBlockRegistry.BlockRule empireRule = VirkrastBlockRegistry
+                        .selectRule(VirkrastBlockRegistry.EMPIRE_BLOCKS, blockNoise);
+                VirkrastBlockRegistry.BlockRule empireWater = VirkrastBlockRegistry
+                        .selectRule(VirkrastBlockRegistry.EMPIRE_UNDERWATER, blockNoise);
+                VirkrastBlockRegistry.BlockRule plainsRule = VirkrastBlockRegistry
+                        .selectRule(VirkrastBlockRegistry.PLAINS_BLOCKS, blockNoise);
+                VirkrastBlockRegistry.BlockRule plainsWater = VirkrastBlockRegistry
+                        .selectRule(VirkrastBlockRegistry.PLAINS_UNDERWATER, blockNoise);
+                VirkrastBlockRegistry.BlockRule oceanRule = VirkrastBlockRegistry
+                        .selectRule(VirkrastBlockRegistry.OCEAN_UNDERWATER, blockNoise);
 
-                // Расчет высот для биома Равнин (Plains)
-                double plainsHillsWeight = (localVoronoi < 0.7) ? 1.0 : (1.0 - ((localVoronoi - 0.7) / 0.3));
-                double plainsHeightResult = plainHills * plainsHillsWeight * 30.0;
+                BlockState surfaceBlock;
+                BlockState subSurfaceBlock;
+                BlockState underwaterBlock;
 
-                // Сильное подавление шумов рельефа при приближении к океану
+                double noiseInbound = (blockNoise - 0.5) * 0.4;
+                double modifiedEmpireWeight = weightEmpire + noiseInbound;
+
+                if (modifiedEmpireWeight > 0.45) {
+                    surfaceBlock = empireRule.surface;
+                    subSurfaceBlock = empireRule.subSurface;
+                    underwaterBlock = empireWater.surface;
+                } else if (weightOcean >= weightPlains && weightOcean >= weightEmpire) {
+                    surfaceBlock = oceanRule.surface;
+                    subSurfaceBlock = oceanRule.subSurface;
+                    underwaterBlock = oceanRule.surface;
+                } else {
+                    surfaceBlock = plainsRule.surface;
+                    subSurfaceBlock = plainsRule.subSurface;
+                    underwaterBlock = plainsWater.surface;
+                }
+
+                // === ИСПРАВЛЕНИЕ: ГЕНЕРАЦИЯ ШУМОВ НА ФИКСИРОВАННЫХ МАСШТАБАХ БИОМОВ ===
+
+                // Расчет высот чисто для EMPIRE (используем константные масштабы: 300.0, 140.0,
+                // 220.0)
+                double empirePlainHills = (noise.getAdvancedPerlin(worldX, worldZ, 4, 140.0, 0.5, 2.0) + 1.0) / 2.0;
+                double empireSharpMountains = noise.getRidgedMountainNoise(worldX, worldZ, 5, 220.0);
+                double empireVoronoi = noise.getVoronoiDistance(worldX, worldZ, 300.0);
+
+                double empireMountainWeight = (empireVoronoi < 0.5) ? (1.0 - (empireVoronoi / 0.5)) : 0.0;
+                double empireHillsWeight = (empireVoronoi < 0.5) ? (1.0 - empireMountainWeight)
+                        : (1.0 - ((empireVoronoi - 0.5) / 0.5));
+                double empireHeightResult = (empireSharpMountains * empireMountainWeight * 95.0)
+                        + (empirePlainHills * empireHillsWeight * 30.0);
+
+                // Расчет высот чисто для PLAINS (используем константные масштабы: 200.0, 100.0,
+                // 50.0)
+                double plainsPlainHills = (noise.getAdvancedPerlin(worldX, worldZ, 4, 100.0, 0.5, 2.0) + 1.0) / 2.0;
+                double plainsVoronoi = noise.getVoronoiDistance(worldX, worldZ, 200.0);
+
+                double plainsHillsWeight = (plainsVoronoi < 0.7) ? 1.0 : (1.0 - ((plainsVoronoi - 0.7) / 0.3));
+                double plainsHeightResult = plainsPlainHills * plainsHillsWeight * 30.0;
+
+                // Расчет высот чисто для OCEAN (используем константные масштабы: 500.0, 200.0,
+                // 80.0)
+                double oceanPlainHills = (noise.getAdvancedPerlin(worldX, worldZ, 4, 200.0, 0.5, 2.0) + 1.0) / 2.0;
+                double oceanVoronoi = noise.getVoronoiDistance(worldX, worldZ, 500.0);
+                double oceanHeightResult = oceanPlainHills * oceanVoronoi * 0.4 * 15.0;
+
+                // Подавление шумов рельефа при приближении к океану
                 if (weightOcean > 0.0) {
                     double suppression = net.minecraft.util.Mth.clamp(1.0 - (weightOcean * 1.3), 0.0, 1.0);
                     empireHeightResult *= suppression;
                     plainsHeightResult *= suppression;
                 }
 
-                // Расчет высоты дна океана
-                double oceanHeightResult = plainHills * localVoronoi * 0.4 * 15.0;
-
-                // === ИСПРАВЛЕНИЕ ТУТ: Плавное снижение всей базовой суши к воде ===
-                // Вместо линейного смешивания (64 -> 35), мы используем плавную интерполяцию
-                // (Smoothstep).
-                // Когда океан близко (weightOcean растет), базовая высота суши мягко опускается
-                // до 62-63 блоков,
-                // образуя пологий пляж, а затем уходит под воду (до 35 блоков дна).
-                double landWeight = weightEmpire + weightPlains;
+                // Плавное снижение базовой суши к воде через Smoothstep
                 double blendedBaseHeight;
-
                 if (weightOcean > 0.0) {
-                    // Используем функцию Smoothstep для идеального сглаживания базовой линии
                     double t = weightOcean;
                     double smoothT = t * t * (3.0 - 2.0 * t);
-
-                    // Постепенно переходим от высоты суши (64) к высоте океанического дна (35)
                     blendedBaseHeight = net.minecraft.util.Mth.lerp(smoothT, 64.0, 35.0);
                 } else {
                     blendedBaseHeight = 64.0;
                 }
 
+                // Смешиваем уже ИТОГОВЫЕ высоты биомов, перемножая их на веса
                 double blendedHeightBonus = (empireHeightResult * weightEmpire) + (plainsHeightResult * weightPlains)
                         + (oceanHeightResult * weightOcean);
-
                 int calculatedSurfaceY = (int) (blendedBaseHeight + blendedHeightBonus);
                 int targetHeight = net.minecraft.util.Mth.clamp(calculatedSurfaceY, -63, 320);
-
                 int seaLevel = getSeaLevel();
 
-                // 1. Заполнение толщи земли камнем
-                for (int y = -63; y < targetHeight - 2; y++) {
-                    chunk.setBlockState(pos.set(x, y, z), Blocks.STONE.defaultBlockState(), false);
-                }
+                // 3. Заполнение блоков по вертикали
+                for (int y = -63; y <= targetHeight; y++) {
+                    int depth = targetHeight - y;
 
-                // 2. Формирование верхнего слоя (суша или океаническое дно)
-                if (targetHeight >= -62) {
-                    if (targetHeight < seaLevel) {
-                        chunk.setBlockState(pos.set(x, targetHeight - 2, z), Blocks.DIRT.defaultBlockState(), false);
-                        chunk.setBlockState(pos.set(x, targetHeight - 1, z), Blocks.GRAVEL.defaultBlockState(), false);
-                        chunk.setBlockState(pos.set(x, targetHeight, z), Blocks.GRAVEL.defaultBlockState(), false);
+                    if (y < targetHeight - 4) {
+                        chunk.setBlockState(pos.set(x, y, z), Blocks.STONE.defaultBlockState(), false);
                     } else {
-                        chunk.setBlockState(pos.set(x, targetHeight - 2, z), Blocks.DIRT.defaultBlockState(), false);
-                        chunk.setBlockState(pos.set(x, targetHeight - 1, z), Blocks.DIRT.defaultBlockState(), false);
-                        chunk.setBlockState(pos.set(x, targetHeight, z), Blocks.GRASS_BLOCK.defaultBlockState(), false);
+                        if (targetHeight < seaLevel) {
+                            if (depth <= 1) {
+                                chunk.setBlockState(pos.set(x, y, z), underwaterBlock, false);
+                            } else {
+                                chunk.setBlockState(pos.set(x, y, z), subSurfaceBlock, false);
+                            }
+                        } else {
+                            if (depth == 0) {
+                                chunk.setBlockState(pos.set(x, y, z), surfaceBlock, false);
+                            } else {
+                                chunk.setBlockState(pos.set(x, y, z), subSurfaceBlock, false);
+                            }
+                        }
                     }
                 }
 
-                // 3. Заполнение водой до уровня моря
                 for (int y = targetHeight + 1; y <= seaLevel; y++) {
                     chunk.setBlockState(pos.set(x, y, z), Blocks.WATER.defaultBlockState(), false);
                 }
             }
         }
-
         return CompletableFuture.completedFuture(chunk);
     }
 
