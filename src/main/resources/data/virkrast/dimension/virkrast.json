@@ -1,11 +1,11 @@
 {
-  "type": "virkrast:virkrast_type",
+  "type": "virkrast:virkrast_dimension",
   "generator": {
     "type": "virkrast:virkrast_generator",
     "biome_source": {
       "type": "virkrast:virkrast_biomes",
       "plains_biome": "minecraft:plains",
-      "forest_biome": "minecraft:forest",
+      "empire_biome": "virkrast:empire_biome",
       "ocean_biome": "minecraft:ocean"
     }
   }

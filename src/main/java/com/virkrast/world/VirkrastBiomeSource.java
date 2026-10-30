@@ -11,10 +11,11 @@ import java.io.InputStream;
 import java.util.stream.Stream;
 
 public class VirkrastBiomeSource extends BiomeSource {
+    // 1. Обновляем кодек, чтобы Minecraft искал в файле JSON измерения поле "empire_biome"
     public static final Codec<VirkrastBiomeSource> CODEC = com.mojang.serialization.codecs.RecordCodecBuilder.create(instance -> 
         instance.group(
             net.minecraft.world.level.biome.Biome.CODEC.fieldOf("plains_biome").forGetter(src -> src.plains),
-            net.minecraft.world.level.biome.Biome.CODEC.fieldOf("forest_biome").forGetter(src -> src.forest),
+            net.minecraft.world.level.biome.Biome.CODEC.fieldOf("empire_biome").forGetter(src -> src.empireBiome), // Заменили forest на empire_biome
             net.minecraft.world.level.biome.Biome.CODEC.fieldOf("ocean_biome").forGetter(src -> src.ocean)
         ).apply(instance, VirkrastBiomeSource::new)
     );
@@ -23,12 +24,13 @@ public class VirkrastBiomeSource extends BiomeSource {
 
     private BufferedImage mapImage;
     private final Holder<Biome> plains;
-    private final Holder<Biome> forest;
+    private final Holder<Biome> empireBiome; // Переменная для твоего нового биома
     private final Holder<Biome> ocean;
 
-    public VirkrastBiomeSource(Holder<Biome> plains, Holder<Biome> forest, Holder<Biome> ocean) {
+    // 2. Конструктор теперь принимает твой биом вместо старого леса
+    public VirkrastBiomeSource(Holder<Biome> plains, Holder<Biome> empireBiome, Holder<Biome> ocean) {
         this.plains = plains;
-        this.forest = forest;
+        this.empireBiome = empireBiome;
         this.ocean = ocean;
         INSTANCE = this;
         loadImage();
@@ -55,11 +57,13 @@ public class VirkrastBiomeSource extends BiomeSource {
         return CODEC;
     }
 
+    // 3. Сообщаем игре, какие биомы в принципе могут генерироваться в этом источнике
     @Override
     protected Stream<Holder<Biome>> collectPossibleBiomes() {
-        return Stream.of(plains, forest, ocean);
+        return Stream.of(plains, empireBiome, ocean);
     }
 
+    // 4. Логика чтения пикселей: теперь зеленый цвет возвращает твой биом
     @Override
     public Holder<Biome> getNoiseBiome(int x, int y, int z, net.minecraft.world.level.biome.Climate.Sampler sampler) {
         int chunkX = Math.floorDiv(x, 4);
@@ -77,8 +81,8 @@ public class VirkrastBiomeSource extends BiomeSource {
         if (rgb == 0x06DD06) {
             return plains;
         }
-        if (rgb == 0x0B770B) {
-            return forest;
+        if (rgb == 0x0B770B) { 
+            return empireBiome; // Вместо ванильного леса возвращаем твой биом Empire
         }
         if (rgb == 0x00CCFF) {
             return ocean;

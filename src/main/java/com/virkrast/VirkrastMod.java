@@ -38,18 +38,14 @@ public class VirkrastMod {
         MinecraftForge.EVENT_BUS.register(this); //
     }
 
-    private void commonSetup(final FMLCommonSetupEvent event) { //
-        event.enqueueWork(() -> { //
-            // Наша старая регистрация биомов
-            Registry.register(BuiltInRegistries.BIOME_SOURCE, 
-                new net.minecraft.resources.ResourceLocation("virkrast", "virkrast_biomes"), //
-                VirkrastBiomeSource.CODEC //
-            );
+        private void commonSetup(final FMLCommonSetupEvent event) { 
+        event.enqueueWork(() -> { 
+            // Регистрацию BIOME_SOURCE отсюда мы убрали, так как она уже красиво работает внутри класса ModDimensions через DeferredRegister!
 
-            // НОВАЯ: Регистрируем наш собственный генератор блоков ландшафта!
+            // Регистрируем наш собственный генератор блоков ландшафта под правильным ID
             Registry.register(BuiltInRegistries.CHUNK_GENERATOR,
-                new net.minecraft.resources.ResourceLocation("virkrast", "virkrast_generator"), //
-                VirkrastChunkGenerator.CODEC //
+                new net.minecraft.resources.ResourceLocation("virkrast", "virkrast_generator"), 
+                VirkrastChunkGenerator.CODEC 
             );
         });
     }
