@@ -11,14 +11,15 @@ import java.io.InputStream;
 import java.util.stream.Stream;
 
 public class VirkrastBiomeSource extends BiomeSource {
-    // 1. Обновляем кодек, чтобы Minecraft искал в файле JSON измерения поле "empire_biome"
-    public static final Codec<VirkrastBiomeSource> CODEC = com.mojang.serialization.codecs.RecordCodecBuilder.create(instance -> 
-        instance.group(
-            net.minecraft.world.level.biome.Biome.CODEC.fieldOf("plains_biome").forGetter(src -> src.plains),
-            net.minecraft.world.level.biome.Biome.CODEC.fieldOf("empire_biome").forGetter(src -> src.empireBiome), // Заменили forest на empire_biome
-            net.minecraft.world.level.biome.Biome.CODEC.fieldOf("ocean_biome").forGetter(src -> src.ocean)
-        ).apply(instance, VirkrastBiomeSource::new)
-    );
+    // 1. Обновляем кодек, чтобы Minecraft искал в файле JSON измерения поле
+    // "empire_biome"
+    public static final Codec<VirkrastBiomeSource> CODEC = com.mojang.serialization.codecs.RecordCodecBuilder
+            .create(instance -> instance.group(
+                    net.minecraft.world.level.biome.Biome.CODEC.fieldOf("plains_biome").forGetter(src -> src.plains),
+                    net.minecraft.world.level.biome.Biome.CODEC.fieldOf("empire_biome")
+                            .forGetter(src -> src.empireBiome), // Заменили forest на empire_biome
+                    net.minecraft.world.level.biome.Biome.CODEC.fieldOf("ocean_biome").forGetter(src -> src.ocean))
+                    .apply(instance, VirkrastBiomeSource::new));
 
     public static VirkrastBiomeSource INSTANCE;
 
@@ -57,7 +58,8 @@ public class VirkrastBiomeSource extends BiomeSource {
         return CODEC;
     }
 
-    // 3. Сообщаем игре, какие биомы в принципе могут генерироваться в этом источнике
+    // 3. Сообщаем игре, какие биомы в принципе могут генерироваться в этом
+    // источнике
     @Override
     protected Stream<Holder<Biome>> collectPossibleBiomes() {
         return Stream.of(plains, empireBiome, ocean);
@@ -81,7 +83,7 @@ public class VirkrastBiomeSource extends BiomeSource {
         if (rgb == 0x06DD06) {
             return plains;
         }
-        if (rgb == 0x0B770B) { 
+        if (rgb == 0x0B770B) {
             return empireBiome; // Вместо ванильного леса возвращаем твой биом Empire
         }
         if (rgb == 0x00CCFF) {
